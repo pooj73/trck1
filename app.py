@@ -493,108 +493,103 @@ class TripAuditorApp:
                 closures=closures,
                 fields=fields
             )
+        @self.app.route('/trip-auditor', methods=['GET', 'POST'])
+        def trip_auditor():
+            import pandas as pd
+            from flask import request, render_template, Response, render_template_string
+            import json
 
-@self.app.route('/trip-auditor', methods=['GET', 'POST'])
-def trip_auditor():
-    import pandas as pd
-    from flask import request, render_template, Response
-    import json
+            EXCEL_FILE = 'Trip_Closure_Sheet_Oct2024_Mar2025.xlsx'
 
-    EXCEL_FILE = 'Trip_Closure_Sheet_Oct2024_Mar2025.xlsx'
+            def load_data():
+                df = pd.read_excel(EXCEL_FILE)
+                df.columns = df.columns.str.strip().str.lower()
+                df['trip date'] = pd.to_datetime(df['trip date'], errors='coerce')
+                df['day'] = df['trip date'].dt.day
+                return df
 
-    def load_data():
-        df = pd.read_excel(EXCEL_FILE)
-        df.columns = df.columns.str.strip().str.lower()
-        df['trip date'] = pd.to_datetime(df['trip date'], errors='coerce')
-        df['day'] = df['trip date'].dt.day
-        return df
+            df = load_data()
 
-    df = load_data()
+            if request.args.get("trip_id"):
+                trip_id = request.args.get("trip_id")
+                trip_row = df[df['trip id'].astype(str) == str(trip_id)]
 
-    # 🟡 Case 1: Editable trip audit form (GET/POST)
-    if request.path.startswith('/trip-auditor') and request.args.get("trip_id"):
-        trip_id = request.args.get("trip_id")
-        trip_row = df[df['trip id'].astype(str) == str(trip_id)]
+                if trip_row.empty:
+                    return f"<h1 style='color:white'>Trip ID {trip_id} not found.</h1>"
 
-        if trip_row.empty:
-            return f"<h1 style='color:white'>Trip ID {trip_id} not found.</h1>"
+                trip_data = trip_row.iloc[0].to_dict()
 
-        trip_data = trip_row.iloc[0].to_dict()
+                if request.method == 'POST':
+                    for key in trip_data.keys():
+                        if key in request.form:
+                            trip_data[key] = request.form[key]
+                    df.loc[df['trip id'].astype(str) == str(trip_id), list(trip_data.keys())] = list(trip_data.values())
+                    df.to_excel(EXCEL_FILE, index=False)
 
-        if request.method == 'POST':
-            # Save edited form fields
-            for key in trip_data.keys():
-                if key in request.form:
-                    trip_data[key] = request.form[key]
-            df.loc[df['trip id'].astype(str) == str(trip_id), list(trip_data.keys())] = list(trip_data.values())
-            df.to_excel(EXCEL_FILE, index=False)
+                    text_content = "Trip Audit Details\n\n"
+                    for k, v in trip_data.items():
+                        text_content += f"{k.title()}: {v}\n"
 
-            # Return downloadable text response
-            text_content = "Trip Audit Details\n\n"
-            for k, v in trip_data.items():
-                text_content += f"{k.title()}: {v}\n"
+                    return Response(
+                        text_content,
+                        mimetype='text/plain',
+                        headers={"Content-Disposition": f"attachment;filename=trip_{trip_id}_audit.txt"}
+                    )
 
-            return Response(
-                text_content,
-                mimetype='text/plain',
-                headers={"Content-Disposition": f"attachment;filename=trip_{trip_id}_audit.txt"}
+                return render_template_string("""
+                <!DOCTYPE html><html><head><title>Audit Trip</title>
+                <style>body{background:#0D1117;color:white;font-family:Arial;padding:20px}
+                input,textarea{width:100%;margin-bottom:10px}
+                label{font-weight:bold}.btn{background:#2563EB;color:white;padding:8px 12px;border:none;border-radius:5px}
+                </style></head><body>
+                <h1>Edit Trip: {{ trip_id }}</h1><form method="POST">
+                {% for k, v in trip_data.items() %}
+                  <label>{{ k.title() }}</label><input name="{{ k }}" value="{{ v }}" /><br>
+                {% endfor %}
+                <button type='submit' class='btn'>Save & Download Audit</button>
+                </form></body></html>
+                """, trip_data=trip_data, trip_id=trip_id)
+
+            # Trip dashboard view
+            filter_option = request.args.get('filter', 'all').lower()
+
+            if filter_option == 'open':
+                filtered_df = df[df['trip status'].str.lower() == 'pending closure']
+            elif filter_option == 'closed':
+                filtered_df = df[df['trip status'].str.lower() == 'completed']
+            elif filter_option == 'flag':
+                filtered_df = df[df['trip status'].str.lower() == 'under audit']
+            else:
+                filtered_df = df
+
+            total_trips = len(df)
+            opened = len(df[df['trip status'].str.lower() == 'pending closure'])
+            closed = len(df[df['trip status'].str.lower() == 'completed'])
+            audited = len(df[df['pod status'].str.lower() == 'yes'])
+            audit_closed = len(df[(df['trip status'].str.lower() == 'completed') & (df['pod status'].str.lower() == 'yes')])
+            flags = len(df[df['trip status'].str.lower() == 'under audit'])
+
+            trip_data = filtered_df[['trip id']].dropna().to_dict('records')
+
+            days = list(range(1, 32))
+            closed_data = df[df['trip status'].str.lower() == 'completed'].groupby('day')['trip id'].count().reindex(days, fill_value=0).tolist()
+            audited_data = df[df['pod status'].str.lower() == 'yes'].groupby('day')['trip id'].count().reindex(days, fill_value=0).tolist()
+            audit_pct = [round((a / c) * 100, 1) if c else 0 for a, c in zip(audited_data, closed_data)]
+
+            return render_template(
+                'trip_auditor.html',
+                total_trips=total_trips,
+                opened=opened,
+                audited=audited,
+                closed=closed,
+                audit_closed=audit_closed,
+                flags=flags,
+                trips=trip_data,
+                closed_data=json.dumps(closed_data),
+                audited_data=json.dumps(audited_data),
+                audit_pct=json.dumps(audit_pct),
+                filter_option=filter_option
             )
-
-        # Show editable form
-        return render_template_string("""
-        <!DOCTYPE html><html><head><title>Audit Trip</title>
-        <style>body{background:#0D1117;color:white;font-family:Arial;padding:20px}
-        input,textarea{width:100%;margin-bottom:10px}
-        label{font-weight:bold}.btn{background:#2563EB;color:white;padding:8px 12px;border:none;border-radius:5px}
-        </style></head><body>
-        <h1>Edit Trip: {{ trip_id }}</h1><form method="POST">
-        {% for k, v in trip_data.items() %}
-          <label>{{ k.title() }}</label><input name="{{ k }}" value="{{ v }}" /><br>
-        {% endfor %}
-        <button type='submit' class='btn'>Save & Download Audit</button>
-        </form></body></html>
-        """, trip_data=trip_data, trip_id=trip_id)
-
-    # 🟢 Case 2: Trip dashboard view
-    filter_option = request.args.get('filter', 'all').lower()
-
-    if filter_option == 'open':
-        filtered_df = df[df['trip status'].str.lower() == 'pending closure']
-    elif filter_option == 'closed':
-        filtered_df = df[df['trip status'].str.lower() == 'completed']
-    elif filter_option == 'flag':
-        filtered_df = df[df['trip status'].str.lower() == 'under audit']
-    else:
-        filtered_df = df
-
-    total_trips = len(df)
-    opened = len(df[df['trip status'].str.lower() == 'pending closure'])
-    closed = len(df[df['trip status'].str.lower() == 'completed'])
-    audited = len(df[df['pod status'].str.lower() == 'yes'])
-    audit_closed = len(df[(df['trip status'].str.lower() == 'completed') & (df['pod status'].str.lower() == 'yes')])
-    flags = len(df[df['trip status'].str.lower() == 'under audit'])
-
-    trip_data = filtered_df[['trip id']].dropna().to_dict('records')
-
-    days = list(range(1, 32))
-    closed_data = df[df['trip status'].str.lower() == 'completed'].groupby('day')['trip id'].count().reindex(days, fill_value=0).tolist()
-    audited_data = df[df['pod status'].str.lower() == 'yes'].groupby('day')['trip id'].count().reindex(days, fill_value=0).tolist()
-    audit_pct = [round((a / c) * 100, 1) if c else 0 for a, c in zip(audited_data, closed_data)]
-
-    return render_template(
-        'trip_auditor.html',
-        total_trips=total_trips,
-        opened=opened,
-        audited=audited,
-        closed=closed,
-        audit_closed=audit_closed,
-        flags=flags,
-        trips=trip_data,
-        closed_data=json.dumps(closed_data),
-        audited_data=json.dumps(audited_data),
-        audit_pct=json.dumps(audit_pct),
-        filter_option=filter_option
-    )
 
 @self.app.route('/trip-ongoing')
 def trip_ongoing():
