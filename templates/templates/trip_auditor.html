@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Trip Auditor Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background-color: #0D1117;
+      color: white;
+      padding: 20px;
+    }
+    h1 {
+      font-size: 24px;
+      margin-bottom: 20px;
+    }
+    .dashboard-cards {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+    .card {
+      background: #161B22;
+      padding: 20px;
+      border-radius: 10px;
+      flex: 1;
+      text-align: center;
+    }
+    .card h2 {
+      margin: 0;
+      font-size: 18px;
+      color: #9CA3AF;
+    }
+    .card p {
+      font-size: 28px;
+      margin-top: 10px;
+    }
+    .chart-container {
+      background: #161B22;
+      padding: 20px;
+      border-radius: 10px;
+      margin-bottom: 30px;
+    }
+    .trip-table {
+      background: #161B22;
+      border-radius: 10px;
+      padding: 20px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px;
+    }
+    th {
+      background: #0D1117;
+      color: #9CA3AF;
+    }
+    tr:nth-child(even) {
+      background-color: #1E293B;
+    }
+    a.btn {
+      background: #2563EB;
+      padding: 6px 12px;
+      color: white;
+      border-radius: 5px;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>Trip Auditor Dashboard</h1>
+  <div class="dashboard-cards">
+    <div class="card"><h2>Total Trips Generated</h2><p>{{ total_trips }}</p></div>
+    <div class="card"><h2>Trips Opened vs Audited</h2><p>{{ opened }} / {{ audited }}</p></div>
+    <div class="card"><h2>Trips Closed vs Audited</h2><p>{{ closed }} / {{ audit_closed }}</p></div>
+    <div class="card"><h2>Flags</h2><p>{{ flags }}</p></div>
+  </div>
+
+  <div class="chart-container">
+    <canvas id="tripChart"></canvas>
+  </div>
+  <script>
+    const ctx = document.getElementById('tripChart').getContext('2d');
+    const chart = new Chart(ctx, {
+      data: {
+        labels: Array.from({length: 31}, (_, i) => `Day ${i + 1}`),
+        datasets: [
+          {
+            type: 'bar', label: 'Closed Trips', data: {{ closed_data|safe }}, backgroundColor: '#4DB8FF'
+          },
+          {
+            type: 'bar', label: 'Audited Trips', data: {{ audited_data|safe }}, backgroundColor: '#FFA500'
+          },
+          {
+            type: 'line', label: 'Audit %', data: {{ audit_pct|safe }}, yAxisID: 'y1', borderColor: 'lime', borderWidth: 2, fill: false, tension: 0.3
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: { beginAtZero: true, ticks: { color: 'white' }, title: { display: true, text: 'Trip Count', color: 'white' } },
+          y1: { beginAtZero: true, position: 'right', title: { display: true, text: 'Audit %', color: 'white' }, ticks: { color: 'white' }, grid: { drawOnChartArea: false } },
+          x: { ticks: { color: 'white' }, grid: { color: '#1F2A40' } }
+        },
+        plugins: {
+          legend: { labels: { color: 'white' } },
+          title: { display: true, text: 'Trips Closed vs Audited + Audit %', color: 'white', font: { size: 18 } }
+        }
+      }
+    });
+  </script>
+
+  <div class="trip-table">
+    <h2>Trips (Filter: {{ filter_option.capitalize() }})</h2>
+    <table>
+      <thead><tr><th>Trip ID</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for trip in trips %}
+        <tr>
+          <td>{{ trip['trip id'] }}</td>
+          <td><a class="btn" href="/audit/{{ trip['trip id'] }}">Audit</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>
