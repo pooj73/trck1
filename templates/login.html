@@ -1,0 +1,18 @@
+<html>
+<head>
+  <title>Login</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-[#0B132B] text-white flex justify-center items-center h-screen">
+  <form method="POST" class="bg-[#0E1A36] p-8 rounded-xl space-y-4 w-96">
+    <h1 class="text-2xl font-bold text-center">Login</h1>
+    {% if error %}
+      <div class="text-red-400 text-center mb-2">{{ error }}</div>
+    {% endif %}
+    <input name="email" type="email" placeholder="Email" class="w-full p-2 rounded bg-[#1C2541]" required>
+    <input name="password" type="password" placeholder="Password" class="w-full p-2 rounded bg-[#1C2541]" required>
+    <button class="w-full bg-blue-500 p-2 rounded" type="submit">Login</button>
+    <p class="text-center pt-2">Don't have an account? <a href="{{ url_for('signup') }}" class="underline">Sign Up</a></p>
+  </form>
+</body>
+</html>
