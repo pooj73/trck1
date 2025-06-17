@@ -168,6 +168,29 @@ class TripAuditorApp:
     def register_routes(self):
         """Define all Flask routes for the app."""
 
+        @self.app.route('/trip-ongoing')
+        def trip_ongoing():
+            data = self.df[self.df['Trip Status'] == 'Pending Closure'][['Trip ID', 'Vehicle ID', 'Trip Status']]
+            return render_template('table_page.html', title="Ongoing Trips", table=data.to_html(classes='text-white', index=False))
+
+        @self.app.route('/trip-stats')
+        def trip_stats():
+            days = list(range(1, 32))
+            total = self.df.groupby('Day')['Trip ID'].count().reindex(days, fill_value=0).tolist()
+            ongoing = self.df[self.df['Trip Status'] == 'Pending Closure'].groupby('Day')['Trip ID'].count().reindex(days, fill_value=0).tolist()
+            closed = self.df[self.df['Trip Status'] == 'Completed'].groupby('Day')['Trip ID'].count().reindex(days, fill_value=0).tolist()
+
+            return render_template('trip_stats.html',
+                total_data=json.dumps(total),
+                ongoing_data=json.dumps(ongoing),
+                closed_data=json.dumps(closed),
+                total_sum=sum(total), ongoing_sum=sum(ongoing), closed_sum=sum(closed))
+
+        @self.app.route('/logout')
+        def logout():
+            session.pop('user', None)
+            return redirect(url_for('login'))
+    
         @self.app.route('/')
         def home():
             # Redirect to signup page
@@ -510,6 +533,7 @@ class TripAuditorApp:
 
             df = load_data()
 
+            # 🎯 Editable Trip View
             if request.args.get("trip_id"):
                 trip_id = request.args.get("trip_id")
                 trip_row = df[df['trip id'].astype(str) == str(trip_id)]
@@ -550,7 +574,7 @@ class TripAuditorApp:
                 </form></body></html>
                 """, trip_data=trip_data, trip_id=trip_id)
 
-            # Trip dashboard view
+            # 📊 Dashboard View
             filter_option = request.args.get('filter', 'all').lower()
 
             if filter_option == 'open':
@@ -590,6 +614,7 @@ class TripAuditorApp:
                 audit_pct=json.dumps(audit_pct),
                 filter_option=filter_option
             )
+
 
 @self.app.route('/trip-ongoing')
 def trip_ongoing():
