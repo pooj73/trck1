@@ -616,74 +616,62 @@ class TripAuditorApp:
             )
 
 
-@self.app.route('/trip-ongoing')
-def trip_ongoing():
-    # Show ongoing trips
-    data = self.df[self.df['Trip Status'] == 'Pending Closure'][['Trip ID', 'Vehicle ID', 'Trip Status']]
-    return render_template('table_page.html', title="Ongoing Trips", table=data.to_html(classes='text-white', index=False))
+def register_routes(self):
 
+    @self.app.route('/trip-ongoing')
+    def trip_ongoing():
+        data = self.df[self.df['Trip Status'] == 'Pending Closure'][['Trip ID', 'Vehicle ID', 'Trip Status']]
+        return render_template('table_page.html', title="Ongoing Trips", table=data.to_html(classes='text-white', index=False))
 
-@self.app.route('/trip-stats')
-def trip_stats():
-    # Show trip statistics by day
-    days = list(range(1, 32))
-    total = self.df.groupby('Day')['Trip ID'].count().reindex(days, fill_value=0).tolist()
-    ongoing = self.df[self.df['Trip Status'] == 'Pending Closure'].groupby('Day')['Trip ID'].count().reindex(days, fill_value=0).tolist()
-    closed = self.df[self.df['Trip Status'] == 'Completed'].groupby('Day')['Trip ID'].count().reindex(days, fill_value=0).tolist()
+    @self.app.route('/trip-stats')
+    def trip_stats():
+        days = list(range(1, 32))
+        total = self.df.groupby('Day')['Trip ID'].count().reindex(days, fill_value=0).tolist()
+        ongoing = self.df[self.df['Trip Status'] == 'Pending Closure'].groupby('Day')['Trip ID'].count().reindex(days, fill_value=0).tolist()
+        closed = self.df[self.df['Trip Status'] == 'Completed'].groupby('Day')['Trip ID'].count().reindex(days, fill_value=0).tolist()
 
-    total_json = json.dumps(total)
-    ongoing_json = json.dumps(ongoing)
-    closed_json = json.dumps(closed)
+        return render_template(
+            'trip_stats.html',
+            total_data=json.dumps(total),
+            ongoing_data=json.dumps(ongoing),
+            closed_data=json.dumps(closed),
+            total_sum=sum(total),
+            ongoing_sum=sum(ongoing),
+            closed_sum=sum(closed)
+        )
 
-    total_sum = sum(total)
-    ongoing_sum = sum(ongoing)
-    closed_sum = sum(closed)
+    @self.app.route('/financial-dashboard')
+    def financial_dashboard():
+        df_fin = self.closure_df.copy()
+        recent_days = sorted(df_fin['Day'].dropna().unique())[-10:]
+        day_labels = [f"Day {int(d)}" for d in recent_days]
+        daily = df_fin[df_fin['Day'].isin(recent_days)]
+        revenue_data = daily.groupby('Day')['Freight Amount'].sum().reindex(recent_days, fill_value=0).astype(int).tolist()
+        expense_data = daily.groupby('Day')['Total Trip Expense'].sum().reindex(recent_days, fill_value=0).astype(int).tolist()
+        profit_data = [r - e for r, e in zip(revenue_data, expense_data)]
+        total_revenue = round(df_fin['Freight Amount'].sum() / 1e6, 2)
+        total_profit = round(df_fin['Net Profit'].sum() / 1e6, 2)
+        total_km = round(df_fin['Actual Distance (KM)'].sum() / 1e3, 1)
+        per_km = round(df_fin['Net Profit'].sum() / df_fin['Actual Distance (KM)'].sum(), 2) if df_fin['Actual Distance (KM)'].sum() else 0
 
-    return render_template('trip_stats.html',
-        total_data=total_json, ongoing_data=ongoing_json, closed_data=closed_json,
-        total_sum=total_sum, ongoing_sum=ongoing_sum, closed_sum=closed_sum)
+        return render_template(
+            'financial_dashboard.html',
+            days=day_labels, revenue=revenue_data, expense=expense_data, profit=profit_data,
+            total_revenue=total_revenue, total_profit=total_profit, total_km=total_km, per_km=per_km
+        )
 
+    @self.app.route('/logout')
+    def logout():
+        session.pop('user', None)
+        return redirect(url_for('login'))
 
-@self.app.route('/financial-dashboard')
-def financial_dashboard():
-    # Show financial dashboard with recent 10 days data
-    df_fin = self.closure_df.copy()
-    recent_days = sorted(df_fin['Day'].dropna().unique())[-10:]
-    day_labels = [f"Day {int(d)}" for d in recent_days]
-    daily = df_fin[df_fin['Day'].isin(recent_days)]
-    revenue_data = daily.groupby('Day')['Freight Amount'].sum().reindex(recent_days, fill_value=0).astype(int).tolist()
-    expense_data = daily.groupby('Day')['Total Trip Expense'].sum().reindex(recent_days, fill_value=0).astype(int).tolist()
-    profit_data = [r - e for r, e in zip(revenue_data, expense_data)]
-    total_revenue = round(df_fin['Freight Amount'].sum() / 1e6, 2)
-    total_profit = round(df_fin['Net Profit'].sum() / 1e6, 2)
-    total_km = round(df_fin['Actual Distance (KM)'].sum() / 1e3, 1)
-    per_km = round(df_fin['Net Profit'].sum() / df_fin['Actual Distance (KM)'].sum(), 2) if df_fin['Actual Distance (KM)'].sum() else 0
+    @self.app.route('/download-summary')
+    def download_summary():
+        report = AIReportGenerator.generate(self.df)
+        with open("AI_Report_Summary.txt", 'w', encoding='utf-8') as f:
+            f.write(report)
+        return send_file("AI_Report_Summary.txt", as_attachment=True)
 
-    return render_template('financial_dashboard.html',
-        days=day_labels, revenue=revenue_data, expense=expense_data, profit=profit_data,
-        total_revenue=total_revenue, total_profit=total_profit, total_km=total_km, per_km=per_km)
-
-
-@self.app.route('/logout')
-def logout():
-    # Log out the current user
-    session.pop('user', None)
-    return redirect(url_for('login'))
-
-
-@self.app.route('/download-summary')
-def download_summary():
-    # Download AI report summary as a text file
-    filtered = self.df
-    report = AIReportGenerator.generate(filtered)
-    with open("AI_Report_Summary.txt", 'w', encoding='utf-8') as f:
-        f.write(report)
-    return send_file("AI_Report_Summary.txt", as_attachment=True)
-
-
-def run(self):
-    """Run the Flask app."""
-    self.app.run(host='0.0.0.0', port=7860, debug=True)
 
 
 # ----------------------------------------------------------------------
@@ -691,9 +679,14 @@ def run(self):
 # ----------------------------------------------------------------------
 # This is the entry point for the application, where the TripAuditorApp is created and run.
 
+def run(self):
+    """Run the Flask app."""
+    self.app.run(host='0.0.0.0', port=7860, debug=True)
+
+# Entry Point
 if __name__ == "__main__":
     app = TripAuditorApp()
     app.run()
 
-# For gunicorn (needed by Render deployment)
+# For gunicorn
 app = TripAuditorApp().app
